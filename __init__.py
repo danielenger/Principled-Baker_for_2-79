@@ -18,9 +18,10 @@ bl_info = {
     "name": "Principled Baker",
     "description": "bakes image textures of selected object",
     "author": "Daniel Engler",
-    "version": (0, 0, 1),
+    "version": (0, 0, 2),
     "blender": (2, 79, 0),
-    "location": "3D View > Tools"
+    "location": "3D View > Tools",
+    "category": "Test"
 }
     
 import bpy
