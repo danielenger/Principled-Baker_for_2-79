@@ -20,7 +20,7 @@ bl_info = {
     "author": "Daniel Engler",
     "version": (0, 0, 3),
     "blender": (2, 79, 0),
-	"location": "Node Editor Toolbar",
+    "location": "Node Editor Toolbar",
     "category": "Node",
 }
     
@@ -69,9 +69,9 @@ class PrincipledBakerOperator(bpy.types.Operator):
                 suffix = self.settings.suffix_normal
         elif input_name == 'Clearcoat Normal':
             if connected_node.type == 'BUMP':
-                suffix = 'Clearcoat' + self.settings.suffix_bump
+                suffix = '_Clearcoat' + self.settings.suffix_bump
             elif connected_node.type == 'NORMAL_MAP':
-                suffix = 'Clearcoat' + self.settings.suffix_normal
+                suffix = '_Clearcoat' + self.settings.suffix_normal
         else:
             if input_name == 'Base Color':
                 suffix = self.settings.suffix_base_color
@@ -412,7 +412,6 @@ class OBJECT_PT_principledbaker_panel(Panel):
     bl_label = "Principled Baker"
     bl_region_type = "TOOLS"
     bl_category = "Principled Baker"
-    #bl_context = "objectmode"
 	
     @classmethod
     def poll(self,context):
