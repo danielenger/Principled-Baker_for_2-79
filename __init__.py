@@ -64,12 +64,18 @@ class PrincipledBakerOperator(bpy.types.Operator):
         suffix = ""
         if input_name == 'Normal':
             if connected_node.type == 'BUMP':
-                suffix = self.settings.suffix_bump
+                if self.settings.use_bump_to_normal:
+                    suffix = self.settings.suffix_normal
+                else:
+                    suffix = self.settings.suffix_bump                
             elif connected_node.type == 'NORMAL_MAP':
                 suffix = self.settings.suffix_normal
         elif input_name == 'Clearcoat Normal':
             if connected_node.type == 'BUMP':
-                suffix = '_Clearcoat' + self.settings.suffix_bump
+                if self.settings.use_bump_to_normal:
+                    suffix = '_Clearcoat' + self.settings.suffix_normal
+                else:
+                    suffix = '_Clearcoat' + self.settings.suffix_bump
             elif connected_node.type == 'NORMAL_MAP':
                 suffix = '_Clearcoat' + self.settings.suffix_normal
         else:
@@ -133,17 +139,28 @@ class PrincipledBakerOperator(bpy.types.Operator):
             self.report({'ERROR'}, 'Material Output missing')
             return {'CANCELLED'}
 
-        if mat.node_tree.nodes.active.type == 'BSDF_PRINCIPLED':
-            principled_node = mat.node_tree.nodes.active
+        # get Material Output Surface links for later clean up
+        socked_to_materialoutput_node_surface = None
+        socked_to_materialoutput_node_displacement = None
+        if materialoutput_node.inputs['Surface'].is_linked:
+            socked_to_materialoutput_node_surface = materialoutput_node.inputs['Surface'].links[0].from_socket
+        if materialoutput_node.inputs['Displacement'].is_linked:            
+            socked_to_materialoutput_node_displacement = materialoutput_node.inputs['Displacement'].links[0].from_socket
+        
+        # get principled_node
+        if materialoutput_node.inputs['Surface'].is_linked:
+            if materialoutput_node.inputs['Surface'].links[0].from_node.type == 'BSDF_PRINCIPLED':
+                principled_node = materialoutput_node.inputs['Surface'].links[0].from_node
         else:
             for node in mat.node_tree.nodes:
                 if node.type == 'BSDF_PRINCIPLED':
                     principled_node = node
                     break
             else:
-                self.report({'ERROR'}, 'Principled BSDF missing')
-                return {'CANCELLED'}
+                self.report({'ERROR'}, 'Principled BSDF missing in {0}'.format(mat.name))
+                return {'CANCELLED'}  
         
+        # new Material
         if self.settings.use_new_material:
             for m in obj.data.materials:
                 if 'p_baker_source_material' in m.keys():
@@ -175,12 +192,7 @@ class PrincipledBakerOperator(bpy.types.Operator):
                 for v in principled_node.inputs:
                     new_principled_node.inputs[v.name].default_value = v.default_value
 
-        # get Material Output Surface link for later clean up
-        materialoutput_node_has_link = False
-        if materialoutput_node.inputs['Surface'].is_linked:
-            materialoutput_node_has_link = True
-            socked_to_materialoutput_node_surface = materialoutput_node.inputs['Surface'].links[0].from_socket
-                
+            
         # create pb_emitter or use existing
         pb_emitter_name = bl_info["name"] + ' Emission'
         if pb_emitter_name in mat.node_tree.nodes:
@@ -193,7 +205,7 @@ class PrincipledBakerOperator(bpy.types.Operator):
             
         # temporary link PB Emitter to Material Output Surface
         pb_emitter_to_surface_link = mat.node_tree.links.new(pb_emitter.outputs['Emission'], materialoutput_node.inputs['Surface'])
-
+        
         i = 0 # for relocating
         
         for input_socket in principled_node.inputs:
@@ -210,7 +222,8 @@ class PrincipledBakerOperator(bpy.types.Operator):
 
                 # bake only if necessary: if overwrite or if file not exists
                 if self.settings.use_overwrite or not os.path.isfile(image_file_path):
-                    if image_file_name in bpy.data.images.keys():
+                        
+                    if image_file_name in bpy.data.images.keys() and os.path.isfile(image_file_path):
                         image = bpy.data.images[image_file_name]
                         # rescale
                         if not image.size[0] == self.settings.resolution:
@@ -238,11 +251,13 @@ class PrincipledBakerOperator(bpy.types.Operator):
                             image_node.color_space = 'COLOR' if input_socket.type == 'RGBA' else 'NONE'
                             image_node.name = image_node_name
                             image_node.label = image_node_name    
-                            image_node.width = 300
-                            image_node.image = image
+                            image_node.width = 300                            
                             # relocate image_node
                             image_node.location.x = new_principled_node.location.x - node_offset_x
                             image_node.location.y = new_principled_node.location.y - i * node_offset_y
+                        
+                        # add image to image_node
+                        image_node.image = image
                         
                         # link image_node to new_principled_node
                         input_name = input_socket.name
@@ -253,8 +268,12 @@ class PrincipledBakerOperator(bpy.types.Operator):
                                 bump_normal_node = image_node.outputs['Color'].links[0].to_node
                             else:
                                 if connected_node.type == 'BUMP':
-                                    bump_normal_node = new_mat.node_tree.nodes.new(type="ShaderNodeBump")
-                                    new_mat.node_tree.links.new(image_node.outputs['Color'], bump_normal_node.inputs['Height'])
+                                    if self.settings.use_bump_to_normal:
+                                        bump_normal_node = new_mat.node_tree.nodes.new(type="ShaderNodeNormalMap")
+                                        new_mat.node_tree.links.new(image_node.outputs['Color'], bump_normal_node.inputs['Color'])
+                                    else:
+                                        bump_normal_node = new_mat.node_tree.nodes.new(type="ShaderNodeBump")
+                                        new_mat.node_tree.links.new(image_node.outputs['Color'], bump_normal_node.inputs['Height'])
                                 elif connected_node.type == 'NORMAL_MAP':
                                     bump_normal_node = new_mat.node_tree.nodes.new(type="ShaderNodeNormalMap")
                                     new_mat.node_tree.links.new(image_node.outputs['Color'], bump_normal_node.inputs['Color'])
@@ -270,10 +289,6 @@ class PrincipledBakerOperator(bpy.types.Operator):
                         i = i + 1 # for relocating
                         
                     
-                    # temp link to pb_emitter
-                    socket_to_pb_emitter = self.get_linked_socket(input_socket)
-                    temp_link = mat.node_tree.links.new(socket_to_pb_emitter, pb_emitter.inputs['Color'] )
-
                     # deselect all nodes of type texture image
                     for node in mat.node_tree.nodes:
                         if node.type == 'TEX_IMAGE':
@@ -288,13 +303,24 @@ class PrincipledBakerOperator(bpy.types.Operator):
                     bake_image_node.select = True
                     mat.node_tree.nodes.active = bake_image_node
 
-                    # bake and save image
-                    self.report({'INFO'}, "baking... {0}".format(image.name))
-                    bpy.ops.object.bake(type='EMIT', margin=self.settings.margin, use_clear=self.settings.use_clear)
-                    image.save()
-                    
+                    # temp link to Material Output Displacement or pb_emitter
+                    socket_to_pb_emitter = self.get_linked_socket(input_socket)
+                    if self.settings.use_bump_to_normal and input_socket.links[0].from_node.type == 'BUMP':
+                        temp_link = mat.node_tree.links.new(socket_to_pb_emitter, materialoutput_node.inputs['Displacement'])
+                        # bake to normal and save image
+                        self.report({'INFO'}, "baking... {0}".format(image.name))
+                        bpy.ops.object.bake(type='NORMAL', margin=self.settings.margin, use_clear=self.settings.use_clear)
+                        image.save()
+                    else:
+                        temp_link = mat.node_tree.links.new(socket_to_pb_emitter, pb_emitter.inputs['Color'])
+                        # bake and save image
+                        self.report({'INFO'}, "baking... {0}".format(image.name))
+                        bpy.ops.object.bake(type='EMIT', margin=self.settings.margin, use_clear=self.settings.use_clear)
+                        image.save()
+                        
                     # clean up
                     mat.node_tree.nodes.remove(bake_image_node)
+                    mat.node_tree.links.remove(temp_link)
                     
                 else:
                     self.report({'INFO'}, "baking skipped. file exists: {0}".format(image_file_path))
@@ -303,8 +329,13 @@ class PrincipledBakerOperator(bpy.types.Operator):
         
         # clean up
         mat.node_tree.nodes.remove(pb_emitter)
-        if materialoutput_node_has_link:
+        
+            
+        if not socked_to_materialoutput_node_surface == None:
             mat.node_tree.links.new(socked_to_materialoutput_node_surface, materialoutput_node.inputs['Surface'])
+        if not socked_to_materialoutput_node_displacement == None:
+            mat.node_tree.links.new(socked_to_materialoutput_node_displacement, materialoutput_node.inputs['Displacement'])
+            
         principled_node.select = True
         mat.node_tree.nodes.active = principled_node
         
@@ -390,6 +421,12 @@ class PBakerSettings(PropertyGroup):
         default = True
         )
         
+    use_bump_to_normal = BoolProperty(
+        name="bump to normal",
+        description="bake bump map as normal map",
+        default = False
+        )
+
     file_format = EnumProperty(
         name="Format:",
         items=(
@@ -438,6 +475,7 @@ class OBJECT_PT_principledbaker_panel(Panel):
         layout.prop(pbaker, "suffix_roughness")
         layout.prop(pbaker, "suffix_normal")
         layout.prop(pbaker, "suffix_bump")
+        layout.prop(pbaker, "use_bump_to_normal")
         layout.prop(pbaker, "use_new_material")
         layout.prop(pbaker, "use_copy_default_values")
 
