@@ -18,7 +18,7 @@ bl_info = {
     "name": "Principled Baker",
     "description": "bakes all inputs of a Principled BSDF with link to image textures",
     "author": "Daniel Engler",
-    "version": (0, 0, 5),
+    "version": (0, 0, 6),
     "blender": (2, 79, 0),
 	"location": "Node Editor Toolbar",
     "category": "Node",
@@ -107,6 +107,17 @@ class PrincipledBakerOperator(bpy.types.Operator):
             socket = input_socket.links[0].from_socket
         return socket
     
+    def set_image_nodes_color_space_to_color(self, material):
+        for node in material.node_tree.nodes:
+            if node.type == 'TEX_IMAGE':
+                node.color_space = 'COLOR'
+
+    def set_image_nodes_color_space_to_noncolor(self, material):
+        for node in material.node_tree.nodes:
+            if node.type == 'TEX_IMAGE':
+                node.color_space = 'NONE'
+
+        
     def execute(self, context):
         scene = context.scene
         self.settings = context.scene.principled_baker
@@ -147,6 +158,14 @@ class PrincipledBakerOperator(bpy.types.Operator):
         if materialoutput_node.inputs['Displacement'].is_linked:            
             socked_to_materialoutput_node_displacement = materialoutput_node.inputs['Displacement'].links[0].from_socket
         
+        # get all non-color data image nodes for later clean up and color space to color
+        noncolor_image_nodes = []
+        for node in mat.node_tree.nodes:
+            if node.type == 'TEX_IMAGE':
+                if node.color_space == 'NONE':
+                    noncolor_image_nodes.append(node)
+                    node.color_space = 'COLOR'
+                    
         # get principled_node
         if materialoutput_node.inputs['Surface'].is_linked:
             if materialoutput_node.inputs['Surface'].links[0].from_node.type == 'BSDF_PRINCIPLED':
@@ -306,12 +325,16 @@ class PrincipledBakerOperator(bpy.types.Operator):
                     # temp link to Material Output Displacement or pb_emitter
                     socket_to_pb_emitter = self.get_linked_socket(input_socket)
                     if self.settings.use_bump_to_normal and input_socket.links[0].from_node.type == 'BUMP':
+                        # temp set all image nodes to non-color data
+                        self.set_image_nodes_color_space_to_noncolor(mat)
                         temp_link = mat.node_tree.links.new(socket_to_pb_emitter, materialoutput_node.inputs['Displacement'])
                         # bake to normal and save image
                         self.report({'INFO'}, "baking... {0}".format(image.name))
                         bpy.ops.object.bake(type='NORMAL', margin=self.settings.margin, use_clear=self.settings.use_clear)
                         image.save()
                     else:
+                        # temp set all image nodes to color
+                        self.set_image_nodes_color_space_to_color(mat)
                         temp_link = mat.node_tree.links.new(socket_to_pb_emitter, pb_emitter.inputs['Color'])
                         # bake and save image
                         self.report({'INFO'}, "baking... {0}".format(image.name))
@@ -327,9 +350,16 @@ class PrincipledBakerOperator(bpy.types.Operator):
             
         ### END of for loop ###
         
-        # clean up
+        ### clean up! ###
         mat.node_tree.nodes.remove(pb_emitter)
-        
+
+        # set all image nodes back
+        for node in mat.node_tree.nodes:
+            if node.type == 'TEX_IMAGE':
+                if node in noncolor_image_nodes:
+                    node.color_space = 'NONE'
+                else:
+                    node.color_space = 'COLOR'        
             
         if not socked_to_materialoutput_node_surface == None:
             mat.node_tree.links.new(socked_to_materialoutput_node_surface, materialoutput_node.inputs['Surface'])
