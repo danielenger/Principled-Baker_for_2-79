@@ -635,8 +635,7 @@ class PrincipledBakerOperator(bpy.types.Operator):
             return r
 
 
-    def execute(self, context):        
-        print("===================================================")
+    def execute(self, context):
         scene = context.scene
         self.settings = context.scene.principled_baker
         active_object = context.active_object
@@ -793,10 +792,7 @@ class PrincipledBakerOperator(bpy.types.Operator):
                             
                             # rescale
                             if not image.size[0] == self.settings.resolution:
-                                print("image.size[0]", image.size[0])
-                                print("self.settings.resolution", self.settings.resolution)
                                 image.scale(self.settings.resolution, self.settings.resolution)
-                                print("image.size[0]", image.size[0])
                         else:
                             # new image
                             image = self.new_image(image_file_name)
