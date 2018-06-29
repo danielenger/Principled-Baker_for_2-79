@@ -18,7 +18,7 @@ bl_info = {
     "name": "Principled Baker",
     "description": "bakes all inputs of Principled BSDF to image textures",
     "author": "Daniel Engler",
-    "version": (0, 1, 0),
+    "version": (0, 1, 1),
     "blender": (2, 79, 0),
 	"location": "Node Editor Toolbar",
     "category": "Node",
@@ -246,7 +246,7 @@ class PrincipledBakerOperator(bpy.types.Operator):
             
             image_node = self.new_image_node(new_mat)
             image_node.label = input_name
-            if input_name in ['Color']:
+            if input_name in ['Alpha', 'Color']:
                 image_node.color_space = 'COLOR'
             else:
                 image_node.color_space = 'NONE'
@@ -635,7 +635,8 @@ class PrincipledBakerOperator(bpy.types.Operator):
             return r
 
 
-    def execute(self, context):
+    def execute(self, context):        
+        print("===================================================")
         scene = context.scene
         self.settings = context.scene.principled_baker
         active_object = context.active_object
@@ -743,7 +744,7 @@ class PrincipledBakerOperator(bpy.types.Operator):
                                 self.joblist.append(input_name)
             else:
                 self.fill_joblist()
-                
+            print(self.joblist)
             # create new mat
             if self.settings.use_new_material or self.settings.use_selected_to_active:
                 new_mat_name = active_object.name if self.settings.new_material_prefix == "" else self.settings.new_material_prefix
@@ -766,7 +767,7 @@ class PrincipledBakerOperator(bpy.types.Operator):
                 
                 image_is_file = os.path.isfile(image_file_path)
                 
-                if input_name == 'Color':
+                if input_name in ['Alpha', 'Color']: #if input_name == 'Color':
                     colorspace = 'sRGB'
                 else:
                     colorspace = 'Non-Color'
@@ -792,7 +793,10 @@ class PrincipledBakerOperator(bpy.types.Operator):
                             
                             # rescale
                             if not image.size[0] == self.settings.resolution:
+                                print("image.size[0]", image.size[0])
+                                print("self.settings.resolution", self.settings.resolution)
                                 image.scale(self.settings.resolution, self.settings.resolution)
+                                print("image.size[0]", image.size[0])
                         else:
                             # new image
                             image = self.new_image(image_file_name)
@@ -859,7 +863,7 @@ class PrincipledBakerOperator(bpy.types.Operator):
                     # create temp image node to bake on
                     if self.settings.use_selected_to_active:
                         bake_image_node = self.new_image_node(new_mat)
-                        bake_image_node.color_space = 'COLOR' if input_name == 'Color' else 'NONE'
+                        bake_image_node.color_space = 'COLOR' if colorspace == 'sRGB' else 'NONE' #'COLOR' if input_name == 'Color' else 'NONE'
                         bake_image_node.image = image # add image to node
                         bake_image_node[PRINCIPLED_NODE_TAG] = 1 # tag for clean up                                    
                         # make only bake_image_node active!
@@ -870,7 +874,7 @@ class PrincipledBakerOperator(bpy.types.Operator):
                             mat = mat_slot.material
                             if not 'p_baker_material' in mat.keys():
                                 bake_image_node = self.new_image_node(mat)
-                                bake_image_node.color_space = 'COLOR' if input_name == 'Color' else 'NONE'
+                                bake_image_node.color_space = 'COLOR' if colorspace == 'sRGB' else 'NONE' #'COLOR' if input_name == 'Color' else 'NONE'
                                 bake_image_node.image = image # add image to node
                                 bake_image_node[PRINCIPLED_NODE_TAG] = 1 # tag for clean up                                    
                                 # make only bake_image_node active!
@@ -923,6 +927,7 @@ class PrincipledBakerOperator(bpy.types.Operator):
                         else:
                             mat.node_tree.links.new(material_data[mat]['socket_to_displacement'], material_output.inputs['Displacement'])
             
+            # add new images to new material
             if self.settings.use_new_material:
                 self.add_images_to_material(new_mat, new_images)
                     
